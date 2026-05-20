@@ -1,2 +1,34 @@
-# Meteor
-🌠 Meteor (流星语音) A Local, Privacy-First Voice Typing Engine for Windows.
+
+# 🌠 Meteor (流星语音)
+
+**A Local, Privacy-First Voice Typing Engine for Windows.**
+
+## 项目简介 (About)
+
+**Meteor** 是一款专为 Windows 桌面环境开发的完全离线、零延迟的全局语音输入法。
+
+作为开发者 **Xing Liu** 的专属工具，“Meteor”不仅取自“刘星”的倒写谐音，更寓意其如流星般极速的响应体验。它抛弃了传统商业输入法的联网依赖与沉重框架，深度压榨 AMD 7840HS 处理器与 32GB 大内存的本地算力，让顶尖的开源大语言声学模型常驻内存，为您提供“随按随说，松手即出”的丝滑文本录入体验。
+
+无论是日常沟通、中英文混杂的代码研讨，还是涉密文档的编写，Meteor 都能在保证数据绝对私有化的前提下，成为你最高效的本地 AI 助理。
+
+## 核心特性 (Key Features)
+
+* 🔒 **100% 本地与绝对隐私：** 无需任何 API 密钥，不上传任何音频数据。哪怕在断网环境或是高保密级别的代码开发中，依然能全速运作。
+* ⚡ **极客级交互架构：** 避开臃肿的 Windows TSF 框架，采用轻量级“全局热键监听 + 多级降级注入（UIAutomation -> 剪贴板备份恢复）”策略，确保在任何复杂的现代应用（如 VSCode、终端、沙箱软件）中都能稳定上屏。
+* 🧠 **算力深度榨取：** 针对 7840HS 硬件环境量身定制。初期采用 Faster-Whisper (CPU 极速版) 跑通核心工作流，后期支持平滑迁移至 `whisper.cpp` + Vulkan 架构，彻底激活 780M 核显算力，实现毫秒级延迟。
+* 🛠️ **“私人定制”后处理引擎：**
+* **热词挂载：** 针对个人项目库（如 `UniDataInsights`, `AI-Data-Analyst`, `Wren AI` 等）进行精准的专有名词和技术术语纠正。
+* **上下文感知（计划中）：** 能够识别当前聚焦窗口，在 IDE 中输出代码格式，在聊天软件中输出日常口语。
+
+
+* 🌍 **强悍的混合识别：** 原生支持中英文无缝混写，并完美兼容四川话等本土方言，精准捕捉您的每一种表达。
+
+## 技术栈 (Tech Stack)
+
+* **核心逻辑 / 前端：** `Python` + `pynput` (全局热键) + `pystray` (托盘状态管理)
+* **ASR 推理引擎：** `Faster-Whisper` (Ctranslate2) / `whisper.cpp` (Vulkan)
+* **系统注入：** `pywinauto` (UIAutomation) / `pyperclip` (剪贴板控制) / `VirtualLock` (物理内存保活)
+
+---
+
+*“让顶尖 AI 算力沉淀于本地，让每一次键盘敲击都进化为流星般的诉说。”*
