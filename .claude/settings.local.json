@@ -1,0 +1,60 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(pytest *)",
+      "Bash(pip *)",
+      "Bash(git *)",
+      "Bash(node *)",
+      "Bash(findstr *)",
+      "Bash(del *)",
+      "Bash(tasklist *)",
+      "Bash(taskkill *)",
+      "Bash(type *)",
+      "Bash(timeout *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(Select-Object *)",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "mcp__codegraph__codegraph_*"
+    ],
+    "additionalDirectories": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/pre-commit-test-gate.js"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/detect-debug-residue.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/capture-fix-commit.js"
+          }
+        ]
+      }
+    ]
+  }
+}
