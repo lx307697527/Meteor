@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import namedtuple
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -52,6 +52,7 @@ class HistoryRecord:
 # ── Protocol Interfaces ─────────────────────────────
 
 
+@runtime_checkable
 class ConfigProvider(Protocol):
     def get(self, key: str, default: Any = None) -> Any: ...
     def set(self, key: str, value: Any) -> None: ...
@@ -61,6 +62,7 @@ class ConfigProvider(Protocol):
     def data_dir(self) -> Path: ...
 
 
+@runtime_checkable
 class HotkeyProvider(Protocol):
     def start(self) -> None: ...
     def stop(self) -> None: ...
@@ -72,6 +74,7 @@ class HotkeyProvider(Protocol):
     def current_hotkey(self) -> str: ...
 
 
+@runtime_checkable
 class AudioProvider(Protocol):
     def start_recording(self) -> None: ...
     def stop_recording(self) -> AudioData: ...
@@ -86,6 +89,7 @@ class AudioProvider(Protocol):
     def devices(self) -> list[DeviceInfo]: ...
 
 
+@runtime_checkable
 class ASRProvider(Protocol):
     def load_model(self) -> None: ...
     def transcribe(self, audio: np.ndarray) -> ASRResult: ...
@@ -95,6 +99,7 @@ class ASRProvider(Protocol):
     def unload_model(self) -> None: ...
 
 
+@runtime_checkable
 class PostProcessProvider(Protocol):
     def process(
         self, text: str, context: ProcessContext | None = None
@@ -104,10 +109,12 @@ class PostProcessProvider(Protocol):
     ) -> ProcessResult: ...
 
 
+@runtime_checkable
 class OutputProvider(Protocol):
     def output(self, text: str) -> OutputResult: ...
 
 
+@runtime_checkable
 class HistoryProvider(Protocol):
     def save(self, record: HistoryRecord) -> int: ...
     def search(
@@ -124,6 +131,7 @@ class HistoryProvider(Protocol):
     def total_count(self) -> int: ...
 
 
+@runtime_checkable
 class ModelProvider(Protocol):
     def ensure_model(self, model_name: str, quantization: str) -> Path: ...
     def verify_model(self, model_dir: Path) -> bool: ...
@@ -135,6 +143,7 @@ class ModelProvider(Protocol):
     def available_models(self) -> list[str]: ...
 
 
+@runtime_checkable
 class LLMProvider(Protocol):
     def polish(
         self, text: str, system_prompt: str | None = None
@@ -146,6 +155,7 @@ class LLMProvider(Protocol):
     def is_configured(self) -> bool: ...
 
 
+@runtime_checkable
 class HotwordProvider(Protocol):
     def find(self, trigger: str) -> str | None: ...
     def list_all(self) -> list[dict]: ...
