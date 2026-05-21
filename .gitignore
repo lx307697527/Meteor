@@ -30,3 +30,6 @@ Thumbs.db
 # VoiceIME runtime data
 *.json.tmp
 *.json.bak
+voiceime/model/model.bin
+voiceime/model/config.json
+voiceime/model/vocabulary.json

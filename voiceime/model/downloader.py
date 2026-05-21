@@ -25,7 +25,7 @@ _MODEL_REPOS: dict[str, str] = {
     "tiny": "Systran/faster-whisper-tiny",
 }
 
-_REQUIRED_FILES = ("model.bin", "config.json", "vocabulary.txt")
+_REQUIRED_FILES = ("model.bin", "config.json", "vocabulary.json")
 
 
 class DownloadError(Exception):

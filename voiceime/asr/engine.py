@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
@@ -50,7 +50,7 @@ class ASREngine:
     def set_model_dir(self, model_dir: Path) -> None:
         self._model_dir = model_dir
 
-    def load_model(self) -> None:
+    def load_model(self, cpu_threads: int = 4) -> None:
         """Load faster-whisper model. Call from worker thread — blocks during load."""
         if self._loaded:
             return
@@ -68,7 +68,7 @@ class ASREngine:
                 str(self._model_dir),
                 device="cpu",
                 compute_type="int8",
-                cpu_threads=4,
+                cpu_threads=cpu_threads,
             )
             elapsed = time.monotonic() - start
             self._loaded = True
@@ -84,7 +84,7 @@ class ASREngine:
         vad_filter: bool = True,
         beam_size: int = 5,
     ) -> ASRResult:
-        """Run ASR inference on audio data. 30s timeout."""
+        """Run ASR inference on audio data. Runs synchronously in caller's thread."""
         if not self._loaded or self._model is None:
             raise ModelNotLoadedError("Model not loaded")
 
@@ -92,24 +92,10 @@ class ASREngine:
             return ASRResult(text="", language="", inference_ms=0, segments=[])
 
         logger.info("Transcribing %d samples ...", len(audio))
-        start = time.monotonic()
 
         try:
-            future: Future = self._executor.submit(
-                self._do_transcribe,
-                audio,
-                language,
-                vad_filter,
-                beam_size,
-            )
-            result = future.result(timeout=_INFERENCE_TIMEOUT_S)
-            return result
+            return self._do_transcribe(audio, language, vad_filter, beam_size)
         except Exception as exc:
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            if isinstance(exc, TimeoutError):
-                raise InferenceTimeoutError(
-                    f"Inference timed out after {_INFERENCE_TIMEOUT_S}s"
-                ) from exc
             raise InferenceError(f"Inference failed: {exc}") from exc
 
     def _do_transcribe(

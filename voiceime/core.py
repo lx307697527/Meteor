@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
 import sys
 from concurrent.futures import Future
 from datetime import datetime, timezone
 from pathlib import Path
 from queue import Queue
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 
 from voiceime.asr.engine import (
     ASREngine,
@@ -55,6 +56,9 @@ ERROR_CLIPBOARD = "ERROR_CLIPBOARD"
 
 _ERROR_STATES = {ERROR_MIC, ERROR_MODEL, ERROR_INFERENCE_TIMEOUT, ERROR_LLM_TIMEOUT, ERROR_CLIPBOARD}
 
+# Inference timeout in seconds (polled every 50ms)
+_INFERENCE_TIMEOUT_S = 30
+
 
 class CoreController(QObject):
     """Central orchestrator wiring all modules together."""
@@ -97,6 +101,7 @@ class CoreController(QObject):
 
         # ASR inference future
         self._inference_future: Future | None = None
+        self._inference_start_time: float = 0.0
         self._current_audio: AudioData | None = None
         self._last_raw_text: str = ""
         self._last_processed_text: str = ""
@@ -257,9 +262,11 @@ class CoreController(QObject):
             try:
                 model_name = self._config.get("asr.model", "large-v3-turbo")
                 quantization = self._config.get("asr.quantization", "int8")
+                self._asr.unload_model()
                 model_dir = self._model_mgr.ensure_model(model_name, quantization)
                 self._asr.set_model_dir(model_dir)
-                self._asr.load_model()
+                cpu_threads = self._config.get("asr.cpu_threads", 4)
+                self._asr.load_model(cpu_threads=cpu_threads)
                 # Phase 2: VirtualLock model memory if enabled
                 self._try_lock_model_memory()
                 self._set_state(READY)
@@ -359,25 +366,41 @@ class CoreController(QObject):
             try:
                 cmd = self._cmd_queue.get_nowait()
                 self._handle_tray_command(cmd)
-            except Exception:
+            except Exception as exc:
+                logger.error("Tray command error: %s", exc)
                 break
 
         # Check ASR inference result
-        if self._inference_future and self._inference_future.done():
-            try:
-                result = self._inference_future.result(timeout=0)
-                self._on_inference_complete(result)
-            except InferenceTimeoutError:
-                self._set_state(ERROR_INFERENCE_TIMEOUT)
-                self.error_occurred.emit(
-                    ERROR_INFERENCE_TIMEOUT, "ASR inference timed out"
-                )
-            except Exception as exc:
-                logger.error("Inference error: %s", exc)
-                self._set_state(READY)
-                self.error_occurred.emit(ERROR_MODEL, str(exc))
-            finally:
-                self._inference_future = None
+        if self._inference_future:
+            if self._inference_future.done():
+                try:
+                    result = self._inference_future.result(timeout=0)
+                    self._on_inference_complete(result)
+                except InferenceTimeoutError:
+                    self._set_state(ERROR_INFERENCE_TIMEOUT)
+                    self.error_occurred.emit(
+                        ERROR_INFERENCE_TIMEOUT, "ASR inference timed out"
+                    )
+                except Exception as exc:
+                    logger.error("Inference error: %s", exc)
+                    self._set_state(READY)
+                    self.error_occurred.emit(ERROR_MODEL, str(exc))
+                finally:
+                    self._inference_future = None
+                    self._inference_start_time = 0.0
+            elif self._inference_start_time > 0:
+                elapsed = time.monotonic() - self._inference_start_time
+                if elapsed > _INFERENCE_TIMEOUT_S:
+                    logger.warning(
+                        "Inference timed out after %ds, cancelling", _INFERENCE_TIMEOUT_S
+                    )
+                    self._inference_future.cancel()
+                    self._inference_future = None
+                    self._inference_start_time = 0.0
+                    self._set_state(ERROR_INFERENCE_TIMEOUT)
+                    self.error_occurred.emit(
+                        ERROR_INFERENCE_TIMEOUT, "ASR inference timed out"
+                    )
 
         # Check LLM polish result
         if self._polish_future and self._polish_future.done():
@@ -395,6 +418,10 @@ class CoreController(QObject):
     # ── Hotkey handlers ───────────────────────────────
 
     def _on_hotkey_down(self) -> None:
+        if self._state in _ERROR_STATES:
+            self._set_state(READY)
+            if self._tray:
+                self._tray.set_status("ready")
         if self._state not in (READY,):
             return
         try:
@@ -458,6 +485,7 @@ class CoreController(QObject):
         vad_filter = self._config.get("asr.vad_filter", True)
         beam_size = self._config.get("asr.beam_size", 5)
 
+        self._inference_start_time = time.monotonic()
         self._inference_future = self._asr._executor.submit(
             self._asr.transcribe,
             audio_data.pcm,
@@ -623,16 +651,46 @@ class CoreController(QObject):
     def _open_settings(self) -> None:
         """Open or focus the settings window."""
         if self._settings_window is not None:
+            self._settings_window.show()
             self._settings_window.raise_()
             self._settings_window.activateWindow()
             return
         from voiceime.ui.settings import SettingsWindow
 
         self._settings_window = SettingsWindow(self._config, self._model_mgr, self._keyring_store)
-        self._settings_window.destroyed.connect(self._on_settings_closed)
+        self._settings_window.setAttribute(
+            Qt.WidgetAttribute.WA_DeleteOnClose
+        )
+        self._settings_window.accepted.connect(self._on_settings_closed)
+        self._settings_window.destroyed.connect(self._on_settings_destroyed)
         self._settings_window.show()
 
     def _on_settings_closed(self) -> None:
+        """Reload affected modules when settings are accepted."""
+        # Reload hotkey if changed
+        new_hotkey = self._config.get("hotkey", "caps_lock")
+        if self._hotkey and self._hotkey.current_hotkey != new_hotkey:
+            logger.info("Hotkey changed to %s, reloading...", new_hotkey)
+            self._hotkey.stop()
+            self._hotkey = HotkeyManager(new_hotkey)
+            self._hotkey.set_callback(
+                on_keydown=self._on_hotkey_down,
+                on_keyup=self._on_hotkey_up,
+            )
+            self._hotkey_queue = self._hotkey.queue
+            self._hotkey.start()
+            logger.info("Hotkey reloaded to %s", new_hotkey)
+
+        # Reload model if model name or cpu_threads changed
+        if self._asr and self._asr.is_loaded:
+            cur_name = self._config.get("asr.model", "large-v3-turbo")
+            expected_dir = self._model_mgr._models_dir / cur_name if self._model_mgr else None
+            if expected_dir and self._asr._model_dir != expected_dir:
+                logger.info("Model changed to %s, reloading...", cur_name)
+                self._load_model_async()
+
+    def _on_settings_destroyed(self) -> None:
+        """Cleanup settings window reference."""
         self._settings_window = None
 
     # ── History window ─────────────────────────────────

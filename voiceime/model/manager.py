@@ -11,7 +11,7 @@ from voiceime.protocols import DownloadProgress
 
 logger = logging.getLogger("voiceime.model.manager")
 
-_REQUIRED_FILES = ("model.bin", "config.json", "vocabulary.txt")
+_REQUIRED_FILES = ("model.bin", "config.json", "vocabulary.json")
 
 
 class ModelManager:

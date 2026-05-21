@@ -24,6 +24,14 @@ def request_single_instance_lock() -> bool:
 
     last_error = _kernel32.GetLastError()
     if last_error == 183:  # ERROR_ALREADY_EXISTS
+        # Previous owner may have died without releasing — try to claim it
+        # WAIT_ABANDONED means we inherited ownership from a dead process
+        WAIT_ABANDONED = 0x00000180
+        wait_result = _kernel32.WaitForSingleObject(handle, 0)
+        if wait_result == WAIT_ABANDONED:
+            logger.warning("Claimed abandoned mutex from dead instance")
+            _mutex_handle = handle
+            return True
         logger.warning("Another VoiceIME instance is already running")
         _kernel32.CloseHandle(handle)
         return False

@@ -79,7 +79,13 @@ class _InferenceTab(QWidget):
 
         self._beam_spin = QSpinBox()
         self._beam_spin.setRange(1, 10)
+        self._beam_spin.setToolTip("越大越准越慢，建议 1-3")
         model_form.addRow("Beam Size：", self._beam_spin)
+
+        self._threads_spin = QSpinBox()
+        self._threads_spin.setRange(1, 16)
+        self._threads_spin.setToolTip("CPU 推理线程数，建议设为 CPU 逻辑核数的一半")
+        model_form.addRow("推理线程：", self._threads_spin)
 
         model_group.setLayout(model_form)
         layout.addWidget(model_group)
@@ -108,7 +114,8 @@ class _InferenceTab(QWidget):
         self._quant_combo.setCurrentText(self._config.get("asr.quantization", "int8"))
         self._device_combo.setCurrentText(self._config.get("asr.device", "cpu"))
         self._lang_combo.setCurrentText(self._config.get("asr.language", "auto"))
-        self._beam_spin.setValue(self._config.get("asr.beam_size", 5))
+        self._beam_spin.setValue(self._config.get("asr.beam_size", 3))
+        self._threads_spin.setValue(self._config.get("asr.cpu_threads", 4))
         self._vad_check.setChecked(self._config.get("asr.vad_filter", True))
         self._vad_threshold.setValue(self._config.get("asr.vad_threshold", 0.5))
 
@@ -119,6 +126,7 @@ class _InferenceTab(QWidget):
         self._config.set("asr.device", self._device_combo.currentText())
         self._config.set("asr.language", self._lang_combo.currentText())
         self._config.set("asr.beam_size", self._beam_spin.value())
+        self._config.set("asr.cpu_threads", self._threads_spin.value())
         self._config.set("asr.vad_filter", self._vad_check.isChecked())
         self._config.set("asr.vad_threshold", self._vad_threshold.value())
 
@@ -130,6 +138,7 @@ class _InferenceTab(QWidget):
         self._device_combo.setCurrentText(defaults["device"])
         self._lang_combo.setCurrentText(defaults["language"])
         self._beam_spin.setValue(defaults["beam_size"])
+        self._threads_spin.setValue(defaults["cpu_threads"])
         self._vad_check.setChecked(defaults["vad_filter"])
         self._vad_threshold.setValue(defaults["vad_threshold"])
 
@@ -358,6 +367,17 @@ class _UITab(QWidget):
         interact_group = QGroupBox("交互")
         interact_form = QFormLayout()
 
+        self._hotkey_combo = QComboBox()
+        self._hotkey_combo.addItems([
+            "caps_lock", "xbutton1", "xbutton2",
+            "f8", "f9", "f10", "f12",
+        ])
+        self._hotkey_combo.setToolTip(
+            "录音快捷键：按住录音，松开上屏。\n"
+            "xbutton1 = 鼠标侧键(后退)  xbutton2 = 鼠标侧键(前进)"
+        )
+        interact_form.addRow("录音快捷键：", self._hotkey_combo)
+
         self._quick_mode_check = QCheckBox("快速模式")
         self._quick_mode_check.setToolTip("识别完成后跳过确认，直接上屏")
         interact_form.addRow(self._quick_mode_check)
@@ -417,6 +437,7 @@ class _UITab(QWidget):
         layout.addStretch()
 
     def _load_values(self) -> None:
+        self._hotkey_combo.setCurrentText(self._config.get("hotkey", "caps_lock"))
         self._quick_mode_check.setChecked(self._config.get("ui.quick_mode", True))
         self._mem_lock_check.setChecked(self._config.get("ui.memory_lock", False))
         self._mem_limit_spin.setValue(self._config.get("ui.memory_lock_limit_gb", 3.5))
@@ -426,6 +447,7 @@ class _UITab(QWidget):
         self._max_rec_spin.setValue(self._config.get("ui.max_record_s", 60))
 
     def save(self) -> None:
+        self._config.set("hotkey", self._hotkey_combo.currentText())
         self._config.set("ui.quick_mode", self._quick_mode_check.isChecked())
         self._config.set("ui.memory_lock", self._mem_lock_check.isChecked())
         self._config.set("ui.memory_lock_limit_gb", self._mem_limit_spin.value())
@@ -435,14 +457,15 @@ class _UITab(QWidget):
         self._config.set("ui.max_record_s", self._max_rec_spin.value())
 
     def restore_defaults(self) -> None:
-        defaults = DEFAULT_CONFIG["ui"]
-        self._quick_mode_check.setChecked(defaults["quick_mode"])
-        self._mem_lock_check.setChecked(defaults["memory_lock"])
-        self._mem_limit_spin.setValue(defaults["memory_lock_limit_gb"])
-        self._auto_restore_check.setChecked(defaults["auto_restore_clipboard"])
-        self._clip_delay_spin.setValue(defaults["clipboard_restore_delay_ms"])
-        self._min_rec_spin.setValue(defaults["min_record_ms"])
-        self._max_rec_spin.setValue(defaults["max_record_s"])
+        defaults = DEFAULT_CONFIG
+        self._hotkey_combo.setCurrentText(defaults.get("hotkey", "caps_lock"))
+        self._quick_mode_check.setChecked(defaults["ui"]["quick_mode"])
+        self._mem_lock_check.setChecked(defaults["ui"]["memory_lock"])
+        self._mem_limit_spin.setValue(defaults["ui"]["memory_lock_limit_gb"])
+        self._auto_restore_check.setChecked(defaults["ui"]["auto_restore_clipboard"])
+        self._clip_delay_spin.setValue(defaults["ui"]["clipboard_restore_delay_ms"])
+        self._min_rec_spin.setValue(defaults["ui"]["min_record_ms"])
+        self._max_rec_spin.setValue(defaults["ui"]["max_record_s"])
 
 
 class _AdvancedTab(QWidget):
