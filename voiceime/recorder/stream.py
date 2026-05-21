@@ -44,6 +44,8 @@ class RecorderStream:
         self._start_time: float = 0
         self._recording = False
         self._lock = threading.Lock()
+        self._levels: list[float] = []  # RMS values for waveform display
+        self._max_levels = 50
 
     @property
     def is_recording(self) -> bool:
@@ -59,6 +61,12 @@ class RecorderStream:
     def devices(self) -> list[DeviceInfo]:
         return list_devices()
 
+    @property
+    def current_levels(self) -> list[float]:
+        """Recent RMS energy values for waveform visualization."""
+        with self._lock:
+            return list(self._levels)
+
     def start_recording(self) -> None:
         """Start recording audio."""
         with self._lock:
@@ -72,6 +80,7 @@ class RecorderStream:
             self._buffer = []
             self._start_time = time.monotonic()
             self._recording = True
+            self._levels = []
 
             self._stream = sd.InputStream(
                 samplerate=_SAMPLE_RATE,
@@ -140,6 +149,11 @@ class RecorderStream:
         if status:
             logger.warning("Audio callback status: %s", status)
         self._buffer.append(indata.copy())
+        # Compute RMS for waveform display
+        rms = float(np.sqrt(np.mean(indata.flatten() ** 2)))
+        if len(self._levels) >= self._max_levels:
+            self._levels.pop(0)
+        self._levels.append(rms)
 
     def _max_duration_watchdog(self) -> None:
         """Auto-stop recording when max duration is reached."""

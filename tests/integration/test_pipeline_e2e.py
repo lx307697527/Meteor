@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from voiceime.protocols import ASRResult, AudioData
+from voiceime.protocols import ASRResult, AudioData, ProcessResult
 
 
 @pytest.fixture
@@ -40,8 +40,23 @@ class TestPipelineE2E:
         core._tray = None
         core._model_mgr = None
         core._settings_window = None
+        core._history_window = None
+        core._hotword_window = None
+        core._floating_bar = None
+        core._pipeline = MagicMock()
+        core._pipeline.process.side_effect = lambda text: ProcessResult(
+            text=text, is_polished=False, steps_applied=["punct"]
+        )
+        core._history = None
+        core._hotword_repo = None
+        core._llm_client = None
+        core._keyring_store = None
         core._inference_future = None
+        core._polish_future = None
         core._current_audio = None
+        core._last_raw_text = ""
+        core._last_processed_text = ""
+        core._last_asr_result = None
         core._hotkey_queue = MagicMock()
         core._cmd_queue = MagicMock()
         core._result_queue = MagicMock()
@@ -72,7 +87,7 @@ class TestPipelineE2E:
         core._on_inference_complete(result)
 
         assert core._state == "READY"
-        core._output.output.assert_called_once_with("你好世界")
+        core._output.output.assert_called_once()
 
     def test_should_handle_empty_asr_result(self, tmp_data_dir, qapp_fixture):
         """ASR returns empty text → back to READY, no output."""

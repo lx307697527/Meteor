@@ -100,3 +100,35 @@ class TestRecorderStream:
             import time
             time.sleep(1.5)
             assert rec.is_recording is False
+
+    def test_should_return_empty_levels_when_not_recording(self):
+        from voiceime.recorder.stream import RecorderStream
+
+        with patch("voiceime.recorder.stream.sd"):
+            rec = RecorderStream()
+        assert rec.current_levels == []
+
+    def test_should_reset_levels_on_start_recording(self):
+        from voiceime.recorder.stream import RecorderStream
+
+        with patch("voiceime.recorder.stream.sd.InputStream") as mock_is, \
+             patch("voiceime.recorder.stream.get_default_device_id", return_value=0):
+            mock_is.return_value.start = MagicMock()
+            mock_is.return_value.stop = MagicMock()
+            mock_is.return_value.close = MagicMock()
+
+            rec = RecorderStream()
+            rec._levels = [0.5, 0.3]  # Pre-populate
+            rec.start_recording()
+            assert rec.current_levels == []
+
+    def test_should_update_levels_in_audio_callback(self):
+        from voiceime.recorder.stream import RecorderStream
+
+        with patch("voiceime.recorder.stream.sd"):
+            rec = RecorderStream()
+        # Simulate audio callback
+        indata = np.ones(1600, dtype=np.float32)
+        rec._audio_callback(indata, 1600, None, None)
+        assert len(rec.current_levels) == 1
+        assert rec.current_levels[0] > 0

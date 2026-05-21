@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from concurrent.futures import Future
+from datetime import datetime, timezone
 from pathlib import Path
 from queue import Queue
 
@@ -20,11 +21,14 @@ from voiceime.config.manager import ConfigManager
 from voiceime.hotkey.manager import HotkeyManager
 from voiceime.model.manager import ModelManager
 from voiceime.output.controller import OutputController
+from voiceime.postprocess.pipeline import PostProcessPipeline
 from voiceime.protocols import (
     ASRResult,
     AudioData,
     HotKeyEvent,
+    HistoryRecord,
     OutputResult,
+    ProcessResult,
     TrayCommand,
 )
 from voiceime.recorder.stream import DeviceDisconnectedError, RecorderStream
@@ -44,9 +48,10 @@ PAUSED = "PAUSED"
 ERROR_MIC = "ERROR_MIC"
 ERROR_MODEL = "ERROR_MODEL"
 ERROR_INFERENCE_TIMEOUT = "ERROR_INFERENCE_TIMEOUT"
+ERROR_LLM_TIMEOUT = "ERROR_LLM_TIMEOUT"
 ERROR_CLIPBOARD = "ERROR_CLIPBOARD"
 
-_ERROR_STATES = {ERROR_MIC, ERROR_MODEL, ERROR_INFERENCE_TIMEOUT, ERROR_CLIPBOARD}
+_ERROR_STATES = {ERROR_MIC, ERROR_MODEL, ERROR_INFERENCE_TIMEOUT, ERROR_LLM_TIMEOUT, ERROR_CLIPBOARD}
 
 
 class CoreController(QObject):
@@ -54,8 +59,9 @@ class CoreController(QObject):
 
     # Signals for UI
     state_changed = pyqtSignal(str)
-    recording_progress = pyqtSignal(int)  # duration_ms
+    recording_progress = pyqtSignal(int, list)  # duration_ms, waveform levels
     asr_result_received = pyqtSignal(object)  # ASRResult
+    llm_result_received = pyqtSignal(object)  # LLMResult / ProcessResult
     error_occurred = pyqtSignal(str, str)  # error_state, message
 
     def __init__(self, config: ConfigManager, model_mgr: ModelManager | None = None) -> None:
@@ -75,11 +81,25 @@ class CoreController(QObject):
         self._output: OutputController | None = None
         self._model_mgr: ModelManager | None = model_mgr
         self._tray: SystemTray | None = None
+        self._pipeline: PostProcessPipeline | None = None
+        self._history = None
+        self._hotword_repo = None
+        self._llm_client = None
+        self._keyring_store = None
+        self._floating_bar = None
         self._settings_window = None
+        self._history_window = None
+        self._hotword_window = None
 
         # ASR inference future
         self._inference_future: Future | None = None
         self._current_audio: AudioData | None = None
+        self._last_raw_text: str = ""
+        self._last_processed_text: str = ""
+        self._last_asr_result: ASRResult | None = None
+
+        # LLM polish future
+        self._polish_future: Future | None = None
 
         # QTimer for polling queues
         self._timer = QTimer(self)
@@ -98,6 +118,7 @@ class CoreController(QObject):
             logger.info("State: %s → %s", self._state, state)
             self._state = state
             self.state_changed.emit(state)
+            self._update_floating_bar()
 
     # ── Initialization ────────────────────────────────
 
@@ -132,8 +153,36 @@ class CoreController(QObject):
                 clipboard_delay_ms=self._config.get("ui.clipboard_restore_delay_ms", 50)
             )
 
+            # Phase 2: KeyringStore
+            from voiceime.keyring.store import KeyringStore
+            self._keyring_store = KeyringStore()
+
+            # Phase 2: HotwordRepo
+            from voiceime.hotword.repository import HotwordRepo
+            self._hotword_repo = HotwordRepo()
+
+            # Phase 2: HistoryRepo
+            from voiceime.history.repository import HistoryRepo
+            self._history = HistoryRepo()
+
+            # Phase 2: LLM Client
+            from voiceime.llm.client import LLMClient
+            self._llm_client = LLMClient(self._config, self._keyring_store)
+
+            # Phase 2: PostProcessPipeline
+            self._pipeline = PostProcessPipeline(
+                config=self._config,
+                hotword_provider=self._hotword_repo,
+                llm_provider=self._llm_client,
+            )
+
             # System tray
             self._tray = SystemTray(self._cmd_queue)
+
+            # Phase 2: FloatingBar
+            from voiceime.ui.floating import FloatingBar
+            self._floating_bar = FloatingBar()
+            self._wire_floating_bar()
 
             # Load model in background
             self._load_model_async()
@@ -143,6 +192,54 @@ class CoreController(QObject):
             logger.error("Initialization failed: %s", exc)
             self.error_occurred.emit(ERROR_MODEL, str(exc))
             return False
+
+    def _wire_floating_bar(self) -> None:
+        """Connect FloatingBar signals and CoreController signals."""
+        if not self._floating_bar:
+            return
+        self.state_changed.connect(self._on_state_changed_for_floating)
+        self.recording_progress.connect(self._floating_bar.on_recording_progress)
+        self.asr_result_received.connect(self._on_asr_for_floating)
+        self._floating_bar.output_requested.connect(self._on_floating_output)
+        self._floating_bar.polish_requested.connect(self._do_polish)
+        self._floating_bar.rerecord_requested.connect(self._on_floating_rerecord)
+        self._floating_bar.cancel_requested.connect(self._on_floating_cancel)
+
+    def _on_state_changed_for_floating(self, state: str) -> None:
+        if not self._floating_bar:
+            return
+        if state == RECORDING:
+            self._floating_bar.show_recording()
+        elif state == INFERRING:
+            self._floating_bar.show_inferring()
+        elif state == CONFIRMING:
+            self._floating_bar.show_confirming(
+                self._last_processed_text,
+                language=self._last_asr_result.language if self._last_asr_result else "",
+                inference_ms=self._last_asr_result.inference_ms if self._last_asr_result else 0,
+            )
+        elif state in (READY, OUTPUTTING, PAUSED) or state in _ERROR_STATES:
+            self._floating_bar.hide_bar()
+
+    def _on_asr_for_floating(self, result: ASRResult) -> None:
+        if self._state == INFERRING and self._floating_bar:
+            self._floating_bar.show_inferring()
+
+    def _update_floating_bar(self) -> None:
+        """Update floating bar based on current state (called from _set_state)."""
+        pass  # Handled by _on_state_changed_for_floating
+
+    def _on_floating_output(self) -> None:
+        self._do_output(self._last_processed_text)
+
+    def _on_floating_rerecord(self) -> None:
+        self._set_state(READY)
+        self._on_hotkey_down()
+
+    def _on_floating_cancel(self) -> None:
+        self._set_state(READY)
+        if self._tray:
+            self._tray.set_status("ready")
 
     def _load_model_async(self) -> None:
         """Load ASR model in a background thread."""
@@ -193,6 +290,10 @@ class CoreController(QObject):
             self._tray.stop()
         if self._asr:
             self._asr.shutdown()
+        if self._llm_client:
+            self._llm_client.shutdown()
+        if self._history:
+            self._history.close()
         logger.info("CoreController stopped")
 
     # ── Queue polling ─────────────────────────────────
@@ -227,6 +328,19 @@ class CoreController(QObject):
                 self.error_occurred.emit(ERROR_MODEL, str(exc))
             finally:
                 self._inference_future = None
+
+        # Check LLM polish result
+        if self._polish_future and self._polish_future.done():
+            try:
+                result = self._polish_future.result(timeout=0)
+                self._on_polish_complete(result)
+            except Exception as exc:
+                logger.error("Polish error: %s", exc)
+                self._on_polish_complete(
+                    ProcessResult(text=self._last_processed_text, is_polished=False, steps_applied=[])
+                )
+            finally:
+                self._polish_future = None
 
     # ── Hotkey handlers ───────────────────────────────
 
@@ -274,7 +388,8 @@ class CoreController(QObject):
 
     def _update_recording_progress(self) -> None:
         if self._recorder and self._recorder.is_recording:
-            self.recording_progress.emit(self._recorder.duration_ms)
+            levels = self._recorder.current_levels
+            self.recording_progress.emit(self._recorder.duration_ms, levels)
 
     # ── ASR inference ─────────────────────────────────
 
@@ -289,8 +404,6 @@ class CoreController(QObject):
         if self._tray:
             self._tray.set_status("loading")
 
-        from concurrent.futures import ThreadPoolExecutor
-
         language = self._config.get("asr.language", "auto")
         vad_filter = self._config.get("asr.vad_filter", True)
         beam_size = self._config.get("asr.beam_size", 5)
@@ -304,8 +417,10 @@ class CoreController(QObject):
         )
 
     def _on_inference_complete(self, result: ASRResult) -> None:
-        """Handle completed ASR inference."""
+        """Handle completed ASR inference — run postprocess then confirm/output."""
         self.asr_result_received.emit(result)
+        self._last_asr_result = result
+        self._last_raw_text = result.text
 
         if not result.text:
             logger.info("Empty transcription result")
@@ -314,12 +429,43 @@ class CoreController(QObject):
                 self._tray.set_status("ready")
             return
 
+        # Run postprocess pipeline
+        if self._pipeline:
+            processed = self._pipeline.process(result.text)
+            self._last_processed_text = processed.text
+        else:
+            self._last_processed_text = result.text
+
         # Quick mode: skip confirming, output directly
         quick_mode = self._config.get("ui.quick_mode", True)
         if quick_mode:
-            self._do_output(result.text)
+            self._do_output(self._last_processed_text)
         else:
             self._set_state(CONFIRMING)
+
+    # ── LLM polish ────────────────────────────────────
+
+    def _do_polish(self) -> None:
+        """Polish current text via LLM."""
+        if not self._pipeline or not self._last_processed_text:
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        self._polish_future = self._pipeline._llm._executor.submit(
+            self._pipeline.polish_only, self._last_processed_text
+        )
+
+    def _on_polish_complete(self, result: ProcessResult) -> None:
+        """Handle completed LLM polish."""
+        self.llm_result_received.emit(result)
+        if result.is_polished:
+            self._last_processed_text = result.text
+        # Update confirming bar with polished text
+        if self._state == CONFIRMING and self._floating_bar:
+            self._floating_bar.show_confirming(
+                self._last_processed_text,
+                language=self._last_asr_result.language if self._last_asr_result else "",
+                inference_ms=self._last_asr_result.inference_ms if self._last_asr_result else 0,
+            )
 
     # ── Text output ───────────────────────────────────
 
@@ -335,9 +481,30 @@ class CoreController(QObject):
         except Exception as exc:
             logger.error("Output error: %s", exc)
         finally:
+            # Save to history
+            self._save_history(text)
             self._set_state(READY)
             if self._tray:
                 self._tray.set_status("ready")
+
+    def _save_history(self, text: str) -> None:
+        """Save recognition result to history."""
+        if not self._history or not text:
+            return
+        try:
+            record = HistoryRecord(
+                text=text,
+                raw_text=self._last_raw_text or None,
+                language=self._last_asr_result.language if self._last_asr_result else None,
+                app_name=None,
+                app_title=None,
+                audio_duration_ms=self._current_audio.duration_ms if self._current_audio else None,
+                inference_time_ms=self._last_asr_result.inference_ms if self._last_asr_result else None,
+                is_polished=text != (self._last_raw_text or ""),
+            )
+            self._history.save(record)
+        except Exception as exc:
+            logger.warning("Failed to save history: %s", exc)
 
     # ── Tray command handling ─────────────────────────
 
@@ -359,6 +526,10 @@ class CoreController(QObject):
                     self._tray.set_status("ready")
         elif action == "settings":
             self._open_settings()
+        elif action == "history":
+            self._open_history()
+        elif action == "hotword":
+            self._open_hotword()
 
     # ── Settings window ────────────────────────────────
 
@@ -376,3 +547,38 @@ class CoreController(QObject):
 
     def _on_settings_closed(self) -> None:
         self._settings_window = None
+
+    # ── History window ─────────────────────────────────
+
+    def _open_history(self) -> None:
+        """Open or focus the history window."""
+        if self._history_window is not None:
+            self._history_window.raise_()
+            self._history_window.activateWindow()
+            return
+        from voiceime.ui.history_window import HistoryWindow
+
+        self._history_window = HistoryWindow(self._history)
+        self._history_window.re_output_requested.connect(self._do_output)
+        self._history_window.destroyed.connect(self._on_history_closed)
+        self._history_window.show()
+
+    def _on_history_closed(self) -> None:
+        self._history_window = None
+
+    # ── Hotword window ─────────────────────────────────
+
+    def _open_hotword(self) -> None:
+        """Open or focus the hotword management window."""
+        if self._hotword_window is not None:
+            self._hotword_window.raise_()
+            self._hotword_window.activateWindow()
+            return
+        from voiceime.ui.hotword_window import HotwordWindow
+
+        self._hotword_window = HotwordWindow(self._hotword_repo)
+        self._hotword_window.destroyed.connect(self._on_hotword_closed)
+        self._hotword_window.show()
+
+    def _on_hotword_closed(self) -> None:
+        self._hotword_window = None

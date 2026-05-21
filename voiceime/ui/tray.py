@@ -101,6 +101,8 @@ class SystemTray:
                 pystray.MenuItem(
                     "暂停", self._on_toggle_pause, checked=lambda item: self._paused
                 ),
+                pystray.MenuItem("历史记录", self._on_history),
+                pystray.MenuItem("热词管理", self._on_hotword),
                 pystray.MenuItem("设置", self._on_settings),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("退出", self._on_exit),
@@ -116,6 +118,12 @@ class SystemTray:
 
     def _on_settings(self, icon, item) -> None:
         self._cmd_queue.put(TrayCommand(action="settings"))
+
+    def _on_history(self, icon, item) -> None:
+        self._cmd_queue.put(TrayCommand(action="history"))
+
+    def _on_hotword(self, icon, item) -> None:
+        self._cmd_queue.put(TrayCommand(action="hotword"))
 
     def _on_exit(self, icon, item) -> None:
         self._cmd_queue.put(TrayCommand(action="exit"))

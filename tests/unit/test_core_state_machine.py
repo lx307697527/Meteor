@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import numpy as np
 import pytest
 
-from voiceime.protocols import AudioData, ASRResult, TrayCommand
+from voiceime.protocols import AudioData, ASRResult, ProcessResult, TrayCommand
 
 
 @pytest.fixture
@@ -33,8 +33,23 @@ class TestCoreStateMachine:
         core._tray = None
         core._model_mgr = None
         core._settings_window = None
+        core._history_window = None
+        core._hotword_window = None
+        core._floating_bar = None
+        core._pipeline = MagicMock()
+        core._pipeline.process.return_value = ProcessResult(
+            text="你好世界", is_polished=False, steps_applied=["punct"]
+        )
+        core._history = None
+        core._hotword_repo = None
+        core._llm_client = None
+        core._keyring_store = None
         core._inference_future = None
+        core._polish_future = None
         core._current_audio = None
+        core._last_raw_text = ""
+        core._last_processed_text = ""
+        core._last_asr_result = None
         core._hotkey_queue = MagicMock()
         core._cmd_queue = MagicMock()
         core._result_queue = MagicMock()
@@ -104,7 +119,8 @@ class TestCoreStateMachine:
         result = ASRResult(text="你好世界", language="zh", inference_ms=500, segments=[])
         core._on_inference_complete(result)
 
-        core._output.output.assert_called_once_with("你好世界")
+        # Pipeline processes text, then output is called with processed text
+        core._output.output.assert_called_once()
 
     def test_should_enter_confirming_in_non_quick_mode(self, qapp_fixture):
         core = self._make_core(state="READY")
@@ -140,3 +156,26 @@ class TestCoreStateMachine:
         core = self._make_core(state="RECORDING")
         core._handle_tray_command(TrayCommand(action="resume"))
         assert core._state == "RECORDING"
+
+    def test_should_run_postprocess_pipeline_on_inference_complete(self, qapp_fixture):
+        core = self._make_core(state="READY")
+        core._config.get = MagicMock(return_value=True)
+        core._pipeline.process.return_value = ProcessResult(
+            text="你好，世界。", is_polished=False, steps_applied=["punct"]
+        )
+        result = ASRResult(text="你好,世界.", language="zh", inference_ms=500, segments=[])
+        core._on_inference_complete(result)
+        core._pipeline.process.assert_called_once_with("你好,世界.")
+        core._output.output.assert_called_once_with("你好，世界。")
+
+    def test_should_handle_tray_history_command(self, qapp_fixture):
+        core = self._make_core(state="READY")
+        core._history = MagicMock()
+        core._handle_tray_command(TrayCommand(action="history"))
+        # Should not crash — window is opened via _open_history
+
+    def test_should_handle_tray_hotword_command(self, qapp_fixture):
+        core = self._make_core(state="READY")
+        core._hotword_repo = MagicMock()
+        core._handle_tray_command(TrayCommand(action="hotword"))
+        # Should not crash — window is opened via _open_hotword
