@@ -258,6 +258,10 @@ class CoreController(QObject):
         """Load ASR model in a background thread."""
         from concurrent.futures import ThreadPoolExecutor
 
+        # Remember current model so we can fallback
+        prev_model_dir = self._asr._model_dir if self._asr else None
+        prev_loaded = self._asr.is_loaded if self._asr else False
+
         def _load():
             try:
                 model_name = self._config.get("asr.model", "large-v3-turbo")
@@ -274,6 +278,23 @@ class CoreController(QObject):
                     self._tray.set_status("ready")
             except Exception as exc:
                 logger.error("Model loading failed: %s", exc)
+                # Fallback to previous model if available
+                if prev_loaded and prev_model_dir and prev_model_dir.exists():
+                    logger.info("Falling back to previous model at %s", prev_model_dir)
+                    try:
+                        self._asr.set_model_dir(prev_model_dir)
+                        cpu_threads = self._config.get("asr.cpu_threads", 4)
+                        self._asr.load_model(cpu_threads=cpu_threads)
+                        self._set_state(READY)
+                        if self._tray:
+                            self._tray.set_status("ready")
+                        self.error_occurred.emit(
+                            ERROR_MODEL,
+                            f"模型 {model_name} 加载失败，已回退到上一模型: {exc}",
+                        )
+                        return
+                    except Exception as fallback_exc:
+                        logger.error("Fallback model also failed: %s", fallback_exc)
                 self._set_state(ERROR_MODEL)
                 self.error_occurred.emit(ERROR_MODEL, str(exc))
                 if self._tray:
@@ -422,6 +443,11 @@ class CoreController(QObject):
             self._set_state(READY)
             if self._tray:
                 self._tray.set_status("ready")
+        if self._state == "LOADING":
+            logger.info("Hotkey pressed while model loading — ignored")
+            if self._tray:
+                self._tray.set_status("loading")
+            return
         if self._state not in (READY,):
             return
         try:
