@@ -36,3 +36,10 @@ def get_prompt_for_context(context: ProcessContext | None) -> str:
         return BUSINESS_PROMPT
 
     return DEFAULT_SYSTEM_PROMPT
+
+
+def get_prompt_from_overrides(overrides) -> str | None:
+    """Extract system_prompt from ContextOverrides, if set."""
+    if overrides is None:
+        return None
+    return overrides.system_prompt

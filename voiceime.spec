@@ -43,6 +43,37 @@ a = Analysis(
         'voiceime.utils.single_instance',
         'voiceime.protocols',
         'voiceime.core',
+        # Phase 2 — postprocess
+        'voiceime.postprocess',
+        'voiceime.postprocess.pipeline',
+        'voiceime.postprocess.converter',
+        'voiceime.postprocess.punct',
+        'voiceime.postprocess.hotword',
+        # Phase 2 — LLM
+        'voiceime.llm',
+        'voiceime.llm.client',
+        'voiceime.llm.prompts',
+        # Phase 2 — hotword
+        'voiceime.hotword',
+        'voiceime.hotword.repository',
+        # Phase 2 — history
+        'voiceime.history',
+        'voiceime.history.repository',
+        # Phase 2 — keyring
+        'voiceime.keyring',
+        'voiceime.keyring.store',
+        # Phase 2 — UI extras
+        'voiceime.ui.floating',
+        'voiceime.ui.history_window',
+        'voiceime.ui.hotword_window',
+        # Phase 3 — context awareness
+        'voiceime.context',
+        'voiceime.context.engine',
+        'voiceime.context.rules',
+        'voiceime.context.window',
+        # Dynamic imports (inside try/except or lazy-loaded)
+        'opencc',
+        'httpx',
         # CTranslate2 / faster-whisper native deps
         'ctranslate2',
         'faster_whisper',

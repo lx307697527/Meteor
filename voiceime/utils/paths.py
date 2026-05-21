@@ -37,5 +37,9 @@ def hotwords_path() -> Path:
     return data_dir() / "hotwords.json"
 
 
+def context_rules_path() -> Path:
+    return data_dir() / "context_rules.json"
+
+
 def log_dir() -> Path:
     return data_dir() / "logs"

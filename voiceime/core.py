@@ -25,9 +25,11 @@ from voiceime.postprocess.pipeline import PostProcessPipeline
 from voiceime.protocols import (
     ASRResult,
     AudioData,
+    ContextOverrides,
     HotKeyEvent,
     HistoryRecord,
     OutputResult,
+    ProcessContext,
     ProcessResult,
     TrayCommand,
 )
@@ -90,6 +92,8 @@ class CoreController(QObject):
         self._settings_window = None
         self._history_window = None
         self._hotword_window = None
+        self._context_engine = None
+        self._current_overrides: ContextOverrides | None = None
 
         # ASR inference future
         self._inference_future: Future | None = None
@@ -176,6 +180,10 @@ class CoreController(QObject):
                 llm_provider=self._llm_client,
             )
 
+            # Phase 3: ContextEngine
+            from voiceime.context.engine import ContextEngine
+            self._context_engine = ContextEngine(config=self._config)
+
             # System tray
             self._tray = SystemTray(self._cmd_queue)
 
@@ -252,6 +260,8 @@ class CoreController(QObject):
                 model_dir = self._model_mgr.ensure_model(model_name, quantization)
                 self._asr.set_model_dir(model_dir)
                 self._asr.load_model()
+                # Phase 2: VirtualLock model memory if enabled
+                self._try_lock_model_memory()
                 self._set_state(READY)
                 if self._tray:
                     self._tray.set_status("ready")
@@ -268,6 +278,37 @@ class CoreController(QObject):
 
         import threading
         threading.Thread(target=_load, daemon=True).start()
+
+    def _try_lock_model_memory(self) -> None:
+        """Attempt to lock ASR model memory via VirtualLock if configured."""
+        if not self._config.get("ui.memory_lock", False):
+            return
+        try:
+            from voiceime.asr.memory import lock_model_memory, start_heartbeat
+            model = getattr(self._asr, "_model", None)
+            if model is None:
+                logger.debug("No model object available for memory locking")
+                return
+            # Get model buffer info — ctranslate2 models store weights in numpy arrays
+            import sys
+            total_size = 0
+            base_ptr = None
+            for attr_name in dir(model):
+                try:
+                    attr = getattr(model, attr_name)
+                    import numpy as np
+                    if isinstance(attr, np.ndarray) and attr.nbytes > 0:
+                        if base_ptr is None:
+                            base_ptr = attr.__array_interface__["data"][0]
+                        total_size += attr.nbytes
+                except Exception:
+                    continue
+            if total_size > 0 and base_ptr is not None:
+                limit_gb = self._config.get("ui.memory_lock_limit_gb", 3.5)
+                lock_model_memory(base_ptr, total_size, limit_gb)
+                start_heartbeat()
+        except Exception as exc:
+            logger.warning("Memory locking failed (non-fatal): %s", exc)
 
     # ── Lifecycle ─────────────────────────────────────
 
@@ -288,6 +329,15 @@ class CoreController(QObject):
             self._hotkey.stop()
         if self._tray:
             self._tray.stop()
+        # Phase 2: unlock memory and stop heartbeat
+        try:
+            from voiceime.asr.memory import stop_heartbeat, get_stats
+            stop_heartbeat()
+            stats = get_stats()
+            if stats.locked_bytes > 0:
+                logger.info("Releasing %d locked memory regions on shutdown", stats.locked_regions)
+        except Exception:
+            pass
         if self._asr:
             self._asr.shutdown()
         if self._llm_client:
@@ -429,15 +479,39 @@ class CoreController(QObject):
                 self._tray.set_status("ready")
             return
 
-        # Run postprocess pipeline
+        # Phase 3: Context-aware overrides
+        context: ProcessContext | None = None
+        self._current_overrides = None
+        ctx_engine = getattr(self, '_context_engine', None)
+        if ctx_engine:
+            context = ctx_engine.get_context()
+            self._current_overrides = ctx_engine.match_rules(context)
+            if self._current_overrides:
+                logger.debug(
+                    "Context override matched: quick_mode=%s, polish_mode=%s",
+                    self._current_overrides.quick_mode,
+                    self._current_overrides.polish_mode,
+                )
+
+        # Run postprocess pipeline with context
         if self._pipeline:
-            processed = self._pipeline.process(result.text)
+            processed = self._pipeline.process(result.text, context=context)
             self._last_processed_text = processed.text
         else:
             self._last_processed_text = result.text
 
-        # Quick mode: skip confirming, output directly
-        quick_mode = self._config.get("ui.quick_mode", True)
+        # Determine quick_mode: context override takes priority over global config
+        if self._current_overrides and self._current_overrides.quick_mode is not None:
+            quick_mode = self._current_overrides.quick_mode
+        else:
+            quick_mode = self._config.get("ui.quick_mode", True)
+
+        # Auto-polish via context override
+        if (self._current_overrides
+                and self._current_overrides.polish_mode == "auto"
+                and self._pipeline and self._llm_client and self._llm_client.is_configured):
+            self._do_polish()
+
         if quick_mode:
             self._do_output(self._last_processed_text)
         else:
@@ -449,9 +523,14 @@ class CoreController(QObject):
         """Polish current text via LLM."""
         if not self._pipeline or not self._last_processed_text:
             return
+        # Use context-specific system prompt if available
+        prompt = None
+        overrides = getattr(self, '_current_overrides', None)
+        if overrides and overrides.system_prompt:
+            prompt = overrides.system_prompt
         from concurrent.futures import ThreadPoolExecutor
         self._polish_future = self._pipeline._llm._executor.submit(
-            self._pipeline.polish_only, self._last_processed_text
+            self._pipeline.polish_only, self._last_processed_text, None, prompt
         )
 
     def _on_polish_complete(self, result: ProcessResult) -> None:
@@ -492,12 +571,20 @@ class CoreController(QObject):
         if not self._history or not text:
             return
         try:
+            # Phase 3: include context info in history
+            app_name = None
+            app_title = None
+            ctx_engine = getattr(self, '_context_engine', None)
+            if ctx_engine:
+                ctx = ctx_engine.get_context()
+                app_name = ctx.app_name
+                app_title = ctx.app_title
             record = HistoryRecord(
                 text=text,
                 raw_text=self._last_raw_text or None,
                 language=self._last_asr_result.language if self._last_asr_result else None,
-                app_name=None,
-                app_title=None,
+                app_name=app_name,
+                app_title=app_title,
                 audio_duration_ms=self._current_audio.duration_ms if self._current_audio else None,
                 inference_time_ms=self._last_asr_result.inference_ms if self._last_asr_result else None,
                 is_polished=text != (self._last_raw_text or ""),
@@ -541,7 +628,7 @@ class CoreController(QObject):
             return
         from voiceime.ui.settings import SettingsWindow
 
-        self._settings_window = SettingsWindow(self._config, self._model_mgr)
+        self._settings_window = SettingsWindow(self._config, self._model_mgr, self._keyring_store)
         self._settings_window.destroyed.connect(self._on_settings_closed)
         self._settings_window.show()
 

@@ -59,7 +59,8 @@ class PostProcessPipeline:
         return ProcessResult(text=text, is_polished=False, steps_applied=steps_applied)
 
     def polish_only(
-        self, text: str, context: ProcessContext | None = None
+        self, text: str, context: ProcessContext | None = None,
+        system_prompt: str | None = None,
     ) -> ProcessResult:
         """Execute only LLM polish, skipping other steps."""
         if not text:
@@ -69,9 +70,10 @@ class PostProcessPipeline:
             return ProcessResult(text=text, is_polished=False, steps_applied=[])
 
         try:
-            from voiceime.llm.prompts import get_prompt_for_context
-            prompt = get_prompt_for_context(context)
-            result = self._llm.polish(text, system_prompt=prompt)
+            if system_prompt is None:
+                from voiceime.llm.prompts import get_prompt_for_context
+                system_prompt = get_prompt_for_context(context)
+            result = self._llm.polish(text, system_prompt=system_prompt)
             if not result.is_success:
                 logger.warning("LLM polish failed: %s", result.error)
                 return ProcessResult(text=text, is_polished=False, steps_applied=[])

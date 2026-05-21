@@ -37,4 +37,8 @@ DEFAULT_CONFIG: dict = {
         "log_level": "INFO",
         "log_path": "",
     },
+    "context": {
+        "enabled": True,
+        "cache_ttl_ms": 200,
+    },
 }

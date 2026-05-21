@@ -22,6 +22,11 @@ ASRResult = namedtuple("ASRResult", ["text", "language", "inference_ms", "segmen
 
 ProcessContext = namedtuple("ProcessContext", ["app_name", "app_title"])
 
+ContextOverrides = namedtuple(
+    "ContextOverrides",
+    ["quick_mode", "polish_mode", "system_prompt", "punct_normalize", "t2s_enabled", "hotword_enabled"],
+)
+
 ProcessResult = namedtuple("ProcessResult", ["text", "is_polished", "steps_applied"])
 
 OutputResult = namedtuple("OutputResult", ["success", "method", "error"])
@@ -168,3 +173,10 @@ class KeyringProvider(Protocol):
     def get_key(self, provider: str) -> str | None: ...
     def delete_key(self, provider: str) -> bool: ...
     def has_key(self, provider: str) -> bool: ...
+
+
+@runtime_checkable
+class ContextProvider(Protocol):
+    def get_context(self) -> ProcessContext: ...
+    def match_rules(self, context: ProcessContext) -> ContextOverrides | None: ...
+    def reload_rules(self) -> None: ...
