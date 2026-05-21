@@ -1,44 +1,49 @@
 # VoiceIME TestPlan Digest
 
-> Source: docs/qa/TestPlan.md | Version: pending | Synced: —
-> 测试计划文档尚未创建。本 digest 将在 TestPlan.md 完成后同步填充。
-
-## 状态
-
-等待 Skill 05 (测试资产生成) 输出后创建源文档并同步。
-
-## PRD 中已定义的性能验收指标（预填）
-
-| 指标 | 目标值 | 优先级 |
-|------|--------|--------|
-| 首次模型加载 | ≤ 8s (SSD 冷启动) | P0 |
-| 二次唤醒延迟 | < 100ms (内存锁定后) | P0 |
-| 5s 音频推理 (CPU) | ≤ 2.5s (int8) | P0 |
-| 内存占用 | ≤ 4 GB | P0 |
-| 待机 CPU | < 1% | P0 |
-| 5s 音频推理 (Vulkan) | ≤ 1.5s (Phase 2 目标) | P1 |
+> Source: docs/qa/TestPlan.md | Version: V1.0 | Synced: 2026-05-21
+> 测试计划的压缩摘要。测试用例详细代码请查阅源文档。
 
 ## 测试框架
 
-- 单元/集成测试：pytest
-- E2E 测试：待定（Phase 2 UI 完成后评估）
+- 单元/集成：pytest + pytest-mock
+- E2E：pytest-qt（PyQt6 控件操作）
+- 覆盖范围：Phase 1 MVP，核心链路 100%
 
-## 必须覆盖的测试场景
+## 测试分层
 
-### P0 核心链路
-- 全局热键按下/松开触发录音
-- 麦克风设备热插拔异常处理
-- Whisper 模型加载/推理/超时
-- 剪贴板备份→写入→恢复流程
-- 系统托盘图标状态切换
-- 进程崩溃时钩子自动注销
+| 层级 | 文件数 | 覆盖 |
+|------|--------|------|
+| Unit | 10 文件 | ConfigManager / HotkeyManager / Recorder / ASR / Output三层 / ModelManager / CoreController状态机 / SingleInstance |
+| Integration | 6 文件 | CONTRACT-01/02/05/06/08 + 全链路管道 |
+| E2E | 3 文件 | 系统托盘 / 设置窗口 / 冒烟测试 |
 
-### P1 后处理
-- 热词替换精确/模糊匹配
-- 繁简转换
-- LLM 润色超时兜底
-- 历史记录 CRUD + 搜索
+## 需求跟踪矩阵（14 个功能点 × 3 类用例）
 
-### 安全
-- API Key 不写入明文配置
-- 语音数据不外传（LLM 润色除外）
+每个 P0 功能点至少覆盖：1 正常 + 1 边缘 + 1 异常用例。
+
+核心覆盖：
+- F01 热键：按下/松开回调、冲突、非目标键过滤
+- F02 录音：PCM 输出、60s 截断、200ms 最短、设备断开
+- F03 ASR：推理返回、超时 30s、模型未加载、VAD 静音
+- F04+F12 剪贴板：备份恢复、原内容为空、写入失败
+- F07 Fallback：clipboard→uia→keyboard 三层降级
+- F11 状态机：完整 READY→RECORDING→INFERRING→OUTPUTTING→READY 周期 + 错误态恢复
+
+## Mock 策略
+
+faster-whisper / sounddevice / pynput / pystray / pyautogui / keyring / UIAutomation / HuggingFace 下载 / Windows API 均通过 `unittest.mock` 隔离。
+
+## 性能验收指标
+
+| 指标 | 目标 | 测试位置 | 状态 |
+|------|------|---------|------|
+| 首次模型加载 | ≤ 8s | test_asr_engine.py | 待实测 |
+| 二次唤醒 | < 100ms | test_core_state_machine.py | 待实测 |
+| 5s 音频推理 CPU | ≤ 2.5s | test_asr_engine.py | 待实测 |
+| 内存占用 | ≤ 4 GB | 进程监控 | 待实测 |
+| 待机 CPU | < 1% | 进程监控 | 待实测 |
+
+## 关键风险
+
+- CPU 推理性能目标（5s≤2.5s）需真实模型实测验证
+- pytest-qt 需要 QApplication 实例，CI 环境需虚拟显示或 headless 配置
