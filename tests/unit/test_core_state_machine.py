@@ -165,7 +165,7 @@ class TestCoreStateMachine:
         )
         result = ASRResult(text="你好,世界.", language="zh", inference_ms=500, segments=[])
         core._on_inference_complete(result)
-        core._pipeline.process.assert_called_once_with("你好,世界.")
+        core._pipeline.process.assert_called_once_with("你好,世界.", context=None)
         core._output.output.assert_called_once_with("你好，世界。")
 
     def test_should_handle_tray_history_command(self, qapp_fixture):

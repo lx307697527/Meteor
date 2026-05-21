@@ -44,7 +44,7 @@ class TestPipelineE2E:
         core._hotword_window = None
         core._floating_bar = None
         core._pipeline = MagicMock()
-        core._pipeline.process.side_effect = lambda text: ProcessResult(
+        core._pipeline.process.side_effect = lambda text, context=None: ProcessResult(
             text=text, is_polished=False, steps_applied=["punct"]
         )
         core._history = None
