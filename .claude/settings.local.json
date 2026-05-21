@@ -20,7 +20,8 @@
       "Glob",
       "Grep",
       "WebSearch",
-      "mcp__codegraph__codegraph_*"
+      "mcp__codegraph__codegraph_*",
+      "Bash(xargs -d '\\\\n' git rm --cached)"
     ],
     "additionalDirectories": []
   },

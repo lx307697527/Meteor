@@ -1,0 +1,31 @@
+{
+  "report_metadata": {
+    "generated_at": "PLACEHOLDER",
+    "milestone": "M3.1",
+    "threshold_s": 1.5,
+    "audio_duration_s": 5.0,
+    "python_version": "PLACEHOLDER",
+    "platform": "win32"
+  },
+  "cpu_faster_whisper": {
+    "backend": "faster-whisper (CTranslate2 CPU int8)",
+    "audio_duration_s": 5.0,
+    "load_time_s": "TODO",
+    "inference_time_s": "TODO",
+    "total_time_s": "TODO",
+    "text_length": "TODO",
+    "error": null
+  },
+  "vulkan_whisper_cpp": {
+    "backend": "whisper.cpp Vulkan",
+    "audio_duration_s": 5.0,
+    "inference_time_s": "TODO",
+    "binary_path": null,
+    "model_path": null,
+    "error": "TODO: Run 'python scripts/benchmark_vulkan.py --whisper-cpp-path <path>' with whisper.cpp Vulkan build"
+  },
+  "evaluation": {
+    "recommendation": "pending",
+    "reason": "Benchmark not yet executed. Run: python scripts/benchmark_vulkan.py --whisper-cpp-path <path>"
+  }
+}

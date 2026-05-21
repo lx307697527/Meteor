@@ -1,0 +1,57 @@
+{
+  "report_metadata": {
+    "generated_at": "TODO",
+    "milestone": "M3.3",
+    "python_version": "TODO",
+    "platform": "TODO",
+    "machine": "TODO"
+  },
+  "metrics": [
+    {
+      "metric": "model_cold_start",
+      "target_s": 8.0,
+      "measured_s": "TODO",
+      "pass": false,
+      "error": "TODO: Run python scripts/benchmark_performance.py"
+    },
+    {
+      "metric": "second_wake_latency",
+      "target_ms": 100,
+      "measured_ms": "TODO",
+      "pass": false,
+      "error": "TODO: Run python scripts/benchmark_performance.py"
+    },
+    {
+      "metric": "inference_5s_audio",
+      "audio_duration_s": 5,
+      "target_s": 2.5,
+      "measured_s": "TODO",
+      "real_time_factor": "TODO",
+      "pass": false,
+      "error": "TODO: Run python scripts/benchmark_performance.py"
+    },
+    {
+      "metric": "memory_peak",
+      "target_gb": 4.0,
+      "measured_gb": "TODO",
+      "measured_mb": "TODO",
+      "pass": false,
+      "error": "TODO: Run python scripts/benchmark_performance.py"
+    },
+    {
+      "metric": "idle_cpu",
+      "target_pct": 1.0,
+      "measured_pct": "TODO",
+      "sample_window_s": 30,
+      "pass": false,
+      "error": "TODO: Run python scripts/benchmark_performance.py"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "passed": 0,
+    "failed": 0,
+    "errors": 5,
+    "overall": "pending"
+  }
+}

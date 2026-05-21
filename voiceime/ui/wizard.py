@@ -99,6 +99,8 @@ class _ModelDownloadPage(QWizardPage):
             return
         self._started = True
         self._status.setText("正在下载模型，请耐心等待...")
+        # Indeterminate mode until progress data arrives
+        self._progress.setRange(0, 0)
 
         model_name = self._config.get("asr.model", "large-v3-turbo")
         quantization = self._config.get("asr.quantization", "int8")
@@ -120,10 +122,16 @@ class _ModelDownloadPage(QWizardPage):
 
         progress = self._model_mgr.download_progress
         if progress and progress.total_bytes > 0:
+            # Switch to determinate mode once we have real data
+            if self._progress.minimum() == 0 and self._progress.maximum() == 0:
+                self._progress.setRange(0, 100)
             pct = int(progress.downloaded_bytes / progress.total_bytes * 100)
             self._progress.setValue(pct)
-            speed_mb = progress.speed_bps / (1024 * 1024)
-            self._status.setText(f"下载中... {pct}% ({speed_mb:.1f} MB/s)")
+            if progress.speed_bps > 0:
+                speed_mb = progress.speed_bps / (1024 * 1024)
+                self._status.setText(f"下载中... {pct}% ({speed_mb:.1f} MB/s)")
+            else:
+                self._status.setText(f"下载中... {pct}%")
         else:
             self._status.setText("正在下载模型文件...")
 
@@ -158,7 +166,7 @@ class _HotkeyConfirmPage(QWizardPage):
         hotkey_name = config.get("hotkey", "caps_lock")
         hotkey_label = "Caps Lock" if hotkey_name == "caps_lock" else hotkey_name
 
-        info = QLabel(
+        self._info_label = QLabel(
             f"语音输入快捷键：{hotkey_label}\n\n"
             "使用方式：\n"
             f"  1. 按住 {hotkey_label} 开始录音\n"
@@ -166,9 +174,9 @@ class _HotkeyConfirmPage(QWizardPage):
             "  3. 等待识别完成后自动输入文字\n\n"
             "提示：可以在系统托盘图标右键菜单中暂停/恢复或更改设置。"
         )
-        info.setWordWrap(True)
+        self._info_label.setWordWrap(True)
         self.setLayout(QHBoxLayout())
-        self.layout().addWidget(info)
+        self.layout().addWidget(self._info_label)
 
 
 class FirstRunWizard(QWizard):
