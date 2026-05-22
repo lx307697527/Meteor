@@ -12,7 +12,13 @@ def _create_model_files(model_dir: Path):
     model_dir.mkdir(parents=True, exist_ok=True)
     (model_dir / "model.bin").write_bytes(b"fake")
     (model_dir / "config.json").write_text("{}")
-    (model_dir / "vocabulary.txt").write_text("你好")
+    (model_dir / "vocabulary.json").write_text("你好")
+
+
+@pytest.fixture(autouse=True)
+def _disable_project_local_model(monkeypatch):
+    """Disable project-local model lookup so tests use tmp_path."""
+    monkeypatch.setenv("VOICEIME_LOCAL_MODEL_DIR", "")
 
 
 class TestContractModelProvider:

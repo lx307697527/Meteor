@@ -203,10 +203,10 @@ class TestCoreWindowManagement:
         mock_win.raise_.assert_called_once()
         mock_win.activateWindow.assert_called_once()
 
-    def test_should_clear_settings_window_on_close(self, core):
+    def test_should_clear_settings_window_on_destroy(self, core):
         mock_win = MagicMock()
         core._settings_window = mock_win
-        core._on_settings_closed()
+        core._on_settings_destroyed()
         assert core._settings_window is None
 
     def test_should_open_history_window(self, core):

@@ -198,7 +198,9 @@ class TestUITab:
         assert tab._mem_lock_check.isChecked() is False
 
     def test_should_have_valid_spin_ranges(self):
-        tab = _UITab(MagicMock())
+        mock_config = MagicMock()
+        mock_config.get = MagicMock(side_effect=lambda k, d=None: d if d is not None else "caps_lock")
+        tab = _UITab(mock_config)
         assert tab._min_rec_spin.minimum() == 100
         assert tab._min_rec_spin.maximum() == 1000
         assert tab._max_rec_spin.minimum() == 5
