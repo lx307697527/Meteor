@@ -104,37 +104,43 @@ class _ConfirmingPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
 
         self._text_label = QLabel()
         self._text_label.setStyleSheet("color: #e0e0e0; font-size: 14px;")
         self._text_label.setWordWrap(True)
-        self._text_label.setMaximumHeight(60)
+        self._text_label.setMaximumHeight(80)
         layout.addWidget(self._text_label)
 
-        info_layout = QHBoxLayout()
         self._info_label = QLabel()
         self._info_label.setStyleSheet("color: #9e9e9e; font-size: 11px;")
-        info_layout.addWidget(self._info_label)
-        info_layout.addStretch()
+        layout.addWidget(self._info_label)
 
-        self._output_btn = QPushButton("上屏 (Enter)")
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
+
+        self._output_btn = QPushButton("上屏 Enter")
+        self._output_btn.setFixedHeight(28)
         self._output_btn.clicked.connect(self.output_requested.emit)
-        info_layout.addWidget(self._output_btn)
+        btn_layout.addWidget(self._output_btn)
 
-        self._polish_btn = QPushButton("润色 (Alt+E)")
+        self._polish_btn = QPushButton("润色 Alt+E")
+        self._polish_btn.setFixedHeight(28)
         self._polish_btn.clicked.connect(self.polish_requested.emit)
-        info_layout.addWidget(self._polish_btn)
+        btn_layout.addWidget(self._polish_btn)
 
-        self._rerecord_btn = QPushButton("重录 (R)")
+        self._rerecord_btn = QPushButton("重录 R")
+        self._rerecord_btn.setFixedHeight(28)
         self._rerecord_btn.clicked.connect(self.rerecord_requested.emit)
-        info_layout.addWidget(self._rerecord_btn)
+        btn_layout.addWidget(self._rerecord_btn)
 
-        self._cancel_btn = QPushButton("取消 (Esc)")
+        self._cancel_btn = QPushButton("取消 Esc")
+        self._cancel_btn.setFixedHeight(28)
         self._cancel_btn.clicked.connect(self.cancel_requested.emit)
-        info_layout.addWidget(self._cancel_btn)
+        btn_layout.addWidget(self._cancel_btn)
 
-        layout.addLayout(info_layout)
+        layout.addLayout(btn_layout)
 
     def set_result(self, text: str, language: str = "", inference_ms: int = 0,
                    app_name: str = "") -> None:
@@ -170,9 +176,13 @@ class FloatingBar(QFrame):
 
         self.setStyleSheet(
             "FloatingBar { background: #2d2d2d; border: 1px solid #555; border-radius: 8px; }"
+            "QPushButton { background: #424242; color: #e0e0e0; border: 1px solid #666; "
+            "border-radius: 4px; padding: 2px 8px; font-size: 12px; }"
+            "QPushButton:hover { background: #616161; }"
+            "QPushButton:pressed { background: #757575; }"
         )
-        self.setMinimumWidth(360)
-        self.setMaximumWidth(500)
+        self.setMinimumWidth(420)
+        self.setMaximumWidth(600)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
